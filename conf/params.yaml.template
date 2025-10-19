@@ -1,0 +1,293 @@
+# WSO2 API Manager - Params File Template
+#
+# This template shows how to configure environment-specific parameters for API imports.
+# Copy this file to: conf/<APIName_Version>/params.yaml
+# Example: conf/PizzaShackAPI_1.0.0/params.yaml
+#
+# IMPORTANT SECURITY NOTES:
+# -------------------------
+# 1. NEVER commit actual API keys or secrets to version control
+# 2. Use environment variables for sensitive values (e.g., $APIKEY_QA)
+# 3. Add actual params.yaml files to .gitignore if they contain secrets
+# 4. Keep this template file with placeholder values only
+#
+# Environment Variable Usage:
+# ---------------------------
+# You can reference environment variables in this file using the $VAR_NAME syntax.
+# Set them before running the import script:
+#   export APIKEY_QA="your-actual-qa-key"
+#   export APIKEY_PROD="your-actual-prod-key"
+#   ./scripts/import.sh -e qa
+
+environments:
+  # Development Environment
+  - name: dev
+    configs:
+      # Backend endpoint configuration
+      endpoints:
+        production:
+          url: https://backend-dev.example.com/api
+          # Optional: Add API key as environment variable
+          config:
+            apiKey: $APIKEY_DEV
+        sandbox:
+          url: https://backend-dev-sandbox.example.com/api
+          config:
+            apiKey: $APIKEY_DEV_SANDBOX
+
+      # Deployment environments and virtual hosts
+      deploymentEnvironments:
+        - displayOnDevportal: true
+          deploymentEnvironment: Default
+          deploymentVhost: api-dev.example.com
+
+      # Throttling policies
+      policies:
+        - Unlimited
+        - Gold
+        - Silver
+
+      # Optional: Certificate configuration
+      # certs:
+      #   - hostName: backend-dev.example.com
+      #     alias: backend-dev-cert
+      #     path: /path/to/cert.pem
+
+  # QA/UAT Environment
+  - name: qa
+    configs:
+      endpoints:
+        production:
+          url: https://backend-qa.example.com/api
+          config:
+            # RECOMMENDED: Use environment variable for API key
+            apiKey: $APIKEY_QA
+            # Other config options:
+            # retryTimeOut: 5000
+            # retryDelay: 1000
+            # factor: 2
+            # maxAttempts: 3
+        sandbox:
+          url: https://backend-qa-sandbox.example.com/api
+          config:
+            apiKey: $APIKEY_QA_SANDBOX
+
+      deploymentEnvironments:
+        - displayOnDevportal: true
+          deploymentEnvironment: UniversalGW
+          deploymentVhost: api-qa.example.com
+
+      policies:
+        - Gold
+        - Silver
+        - Bronze
+
+  # Production Environment
+  - name: production
+    configs:
+      endpoints:
+        production:
+          url: https://backend-prod.example.com/api
+          config:
+            # CRITICAL: Use environment variable for production keys
+            apiKey: $APIKEY_PROD
+        sandbox:
+          url: https://backend-prod-sandbox.example.com/api
+          config:
+            apiKey: $APIKEY_PROD_SANDBOX
+
+      deploymentEnvironments:
+        - displayOnDevportal: true
+          deploymentEnvironment: ProductionGW
+          deploymentVhost: api.example.com
+
+      policies:
+        - Gold
+        - Silver
+
+      # Optional: Advanced settings
+      # corsConfiguration:
+      #   corsConfigurationEnabled: true
+      #   accessControlAllowOrigins:
+      #     - "*"
+      #   accessControlAllowCredentials: false
+      #   accessControlAllowHeaders:
+      #     - authorization
+      #     - Access-Control-Allow-Origin
+      #     - Content-Type
+      #   accessControlAllowMethods:
+      #     - GET
+      #     - POST
+      #     - PUT
+      #     - DELETE
+
+# Additional Configuration Options:
+# ----------------------------------
+#
+# ====================================================================================
+# ENDPOINT SECURITY CONFIGURATION
+# ====================================================================================
+#
+# Option 1: API Key in Custom Headers (Recommended for API Key-based backends)
+# -----------------------------------------------------------------------------
+# Use this when your backend API requires an API key in headers (e.g., X-API-Key)
+#
+# environments:
+#   - name: qa
+#     configs:
+#       endpoints:
+#         production:
+#           url: https://backend-qa.example.com/api
+#       # Configure custom headers for API key
+#       endpointConfig:
+#         production_endpoints:
+#           url: https://backend-qa.example.com/api
+#           config:
+#             customHeaders:
+#               - name: X-API-Key
+#                 value: $APIKEY_QA
+#               - name: Authorization
+#                 value: "Bearer $APIKEY_QA"
+#
+#
+# Option 2: Basic/Digest Authentication (Global for Production & Sandbox)
+# ------------------------------------------------------------------------
+# Use this when your backend requires basic or digest authentication
+# NOTE: This applies to BOTH production and sandbox endpoints (cannot be separate)
+#
+# environments:
+#   - name: qa
+#     configs:
+#       endpoints:
+#         production:
+#           url: https://backend-qa.example.com/api
+#         sandbox:
+#           url: https://backend-qa-sandbox.example.com/api
+#       # Security applies globally to both endpoints
+#       security:
+#         enabled: true
+#         type: basic  # or 'digest'
+#         username: $BACKEND_USERNAME
+#         password: $BACKEND_PASSWORD
+#
+#
+# Option 3: OAuth 2.0 Authentication (Separate for Production & Sandbox)
+# -----------------------------------------------------------------------
+# Use this when your backend requires OAuth 2.0 authentication
+# Can be configured separately for production and sandbox endpoints
+#
+# environments:
+#   - name: qa
+#     configs:
+#       endpoints:
+#         production:
+#           url: https://backend-qa.example.com/api
+#         sandbox:
+#           url: https://backend-qa-sandbox.example.com/api
+#       security:
+#         production:
+#           enabled: true
+#           type: oauth
+#           tokenUrl: https://oauth-qa.example.com/token
+#           clientId: $OAUTH_CLIENT_ID_QA
+#           clientSecret: $OAUTH_CLIENT_SECRET_QA
+#           grantType: client_credentials  # or 'password', 'authorization_code', etc.
+#           # Optional: Custom parameters for token request
+#           customParameters:
+#             scope: api.read api.write
+#             audience: https://api.example.com
+#         sandbox:
+#           enabled: true
+#           type: oauth
+#           tokenUrl: https://oauth-qa-sandbox.example.com/token
+#           clientId: $OAUTH_CLIENT_ID_QA_SANDBOX
+#           clientSecret: $OAUTH_CLIENT_SECRET_QA_SANDBOX
+#           grantType: password
+#           username: $OAUTH_USERNAME
+#           password: $OAUTH_PASSWORD
+#           customParameters:
+#             scope: api.read
+#
+# OAuth Grant Types:
+#   - client_credentials: Client credentials grant (service-to-service)
+#   - password: Resource owner password credentials grant
+#   - authorization_code: Authorization code grant
+#   - refresh_token: Refresh token grant
+#
+# IMPORTANT: For OAuth, these fields are MANDATORY:
+#   - type, tokenUrl, clientId, clientSecret, grantType
+#
+#
+# Option 4: Disable Endpoint Security
+# ------------------------------------
+# Use this to explicitly disable endpoint security
+#
+# environments:
+#   - name: qa
+#     configs:
+#       endpoints:
+#         production:
+#           url: https://backend-qa.example.com/api
+#       security:
+#         enabled: false  # No security applied
+#
+# Security Behavior:
+#   - enabled: true  -> You MUST specify username, password, and type
+#   - enabled: false -> No security parameters applied
+#   - Not set        -> Uses security from original api.yaml file
+#
+# ====================================================================================
+# OTHER CONFIGURATION OPTIONS
+# ====================================================================================
+#
+# Custom Properties:
+# additionalProperties:
+#   - name: custom_property
+#     value: custom_value
+#     display: true
+#
+# Certificate Configuration:
+# certs:
+#   - hostName: backend.example.com
+#     alias: backend-cert
+#     path: /path/to/certificate.pem
+#
+# Advanced Endpoint Configuration:
+# endpoints:
+#   production:
+#     url: https://backend.example.com/api
+#     config:
+#       retryTimeOut: 5000
+#       retryDelay: 1000
+#       factor: 2
+#       maxAttempts: 3
+#       actionSelect: Action Set
+#       actionDuration: 1000
+#       actionResponse: Respond
+#
+# CORS Configuration:
+# corsConfiguration:
+#   corsConfigurationEnabled: true
+#   accessControlAllowOrigins:
+#     - "*"
+#   accessControlAllowCredentials: false
+#   accessControlAllowHeaders:
+#     - authorization
+#     - Content-Type
+#   accessControlAllowMethods:
+#     - GET
+#     - POST
+#     - PUT
+#     - DELETE
+#
+# ====================================================================================
+# DOCUMENTATION
+# ====================================================================================
+#
+# For complete documentation, see:
+# - Configuring Environment Specific Parameters:
+#   https://apim.docs.wso2.com/en/latest/install-and-setup/setup/api-controller/advanced-topics/configuring-environment-specific-parameters/
+# - Configuring Different Endpoint Security Types:
+#   https://apim.docs.wso2.com/en/latest/install-and-setup/setup/api-controller/advanced-topics/configuring-different-endpoint-security-types/
+# - Migrating APIs to Different Environments:
+#   https://apim.docs.wso2.com/en/latest/install-and-setup/setup/api-controller/managing-apis-api-products/migrating-apis-to-different-environments/

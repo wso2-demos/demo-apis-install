@@ -1,0 +1,36 @@
+# WSO2 API Manager Backup Utility - Git Ignore
+
+# Exported API files
+api-exports/
+
+# Log files
+logs/
+*.log
+
+# Sensitive configuration files
+# Uncomment the line below if your params files contain actual API keys/secrets
+conf/*/params.yaml
+
+# Keep only the template
+!conf/params.yaml.template
+
+# OS specific files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE specific files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment files
+.env
+.env.local
+.env.*.local
