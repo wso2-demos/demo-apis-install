@@ -148,14 +148,20 @@ The import script provides the reverse functionality:
 - `STATUS_FILTER`: API lifecycle status filter (set via `--status`)
 - `DRY_RUN`: Boolean flag for preview mode (set via `--dry-run`)
 
-**Import Script ([scripts/import.sh:11-15](scripts/import.sh#L11-L15)):**
+**Import Script ([scripts/import.sh:11-16](scripts/import.sh#L11-L16)):**
 - `SCRIPT_DIR`: Directory where the script is located (auto-detected)
 - `PROJECT_ROOT`: Project root directory (parent of scripts directory)
 - `SOURCE_ENV`: Source environment name for determining import path (default: "dev")
 - `IMPORT_DIR`: Source directory for API ZIP files (default: `$PROJECT_ROOT/api-exports/apis/$SOURCE_ENV`)
+- `IMPORT_DIR_EXPLICIT`: Boolean flag tracking if `-d` was explicitly set (affects whether `SOURCE_ENV` is used)
 - `ENVIRONMENT_NAME`: Target WSO2 environment (default: "qa")
 - `API_FILTER`: Optional specific API to import (Name_Version format, set via `--api`)
 - `LOG_FILE`: Generated log filename with timestamp in `$PROJECT_ROOT/logs/` directory
+
+**Import Directory Logic:**
+- If `-d/--directory` is specified: Uses the provided directory (ignores `-s`)
+- If only `-s/--source-env` is specified: Constructs path as `$PROJECT_ROOT/api-exports/apis/$SOURCE_ENV`
+- These options are mutually exclusive in behavior (though both can be provided, `-d` takes precedence)
 
 ### Error Handling
 
