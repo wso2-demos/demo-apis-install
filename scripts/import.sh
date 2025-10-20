@@ -12,6 +12,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 SOURCE_ENV="dev"  # Default source environment
 ENVIRONMENT_NAME="qa"  # Default target environment
 IMPORT_DIR=""  # Will be set after parsing arguments
+IMPORT_DIR_EXPLICIT=false  # Track if -d was explicitly set
 API_FILTER=""  # Optional: specific API to import (Name_Version format)
 
 # Ensure logs directory exists in project root before creating log file
@@ -153,7 +154,9 @@ import_api() {
 main() {
     log_message "${BLUE}=== WSO2 API Manager - API Import ===${NC}"
     log_message "Started at: $(date)"
-    log_message "Source Environment: $SOURCE_ENV"
+    if [ "$IMPORT_DIR_EXPLICIT" = false ]; then
+        log_message "Source Environment: $SOURCE_ENV"
+    fi
     log_message "Target Environment: $ENVIRONMENT_NAME"
     log_message "Import Directory: $IMPORT_DIR"
     if [ -n "$API_FILTER" ]; then
@@ -210,8 +213,11 @@ main() {
     if [ $failure_count -gt 0 ]; then
         log_message "${RED}Failed imports: $failure_count APIs${NC}"
     fi
-    log_message "Source environment: $SOURCE_ENV"
+    if [ "$IMPORT_DIR_EXPLICIT" = false ]; then
+        log_message "Source environment: $SOURCE_ENV"
+    fi
     log_message "Target environment: $ENVIRONMENT_NAME"
+    log_message "Import directory: $IMPORT_DIR"
     log_message "Log file: $LOG_FILE"
     log_message "Completed at: $(date)"
     
@@ -231,9 +237,11 @@ show_help() {
     echo "Usage: $0 [OPTIONS]"
     echo ""
     echo "Options:"
-    echo "  -s, --source-env NAME     Source environment name (default: dev)"
+    echo "  -s, --source-env NAME     Source environment name for path construction (default: dev)"
+    echo "                            Only used if -d is NOT specified"
     echo "  -e, --environment NAME    Target environment name (default: qa)"
-    echo "  -d, --directory PATH      Import directory (default: <project-root>/api-exports/apis/<source-env>)"
+    echo "  -d, --directory PATH      Import directory (overrides -s option)"
+    echo "                            Default: <project-root>/api-exports/apis/<source-env>"
     echo "  -a, --api NAME_VERSION    Import specific API by name and version (e.g., PizzaShackAPI_1.0.0)"
     echo "      --clean-logs          Clean all log files from logs directory"
     echo "  -h, --help               Show this help message"
@@ -272,6 +280,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         -d|--directory)
             IMPORT_DIR="$2"
+            IMPORT_DIR_EXPLICIT=true
             shift 2
             ;;
         -a|--api)
@@ -295,7 +304,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Set IMPORT_DIR if not explicitly set via -d/--directory
-if [ -z "$IMPORT_DIR" ]; then
+if [ "$IMPORT_DIR_EXPLICIT" = false ]; then
     IMPORT_DIR="$PROJECT_ROOT/api-exports/apis/$SOURCE_ENV"
 fi
 
