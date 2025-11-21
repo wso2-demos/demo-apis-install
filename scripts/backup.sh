@@ -12,6 +12,15 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 ENVIRONMENT_NAME="dev"  # Change this to your environment name
 EXPORT_DIR="$PROJECT_ROOT/api-exports"
 
+# Source the environment-to-version mapping configuration
+ENV_CONFIG_FILE="$PROJECT_ROOT/conf/environments.conf"
+if [ ! -f "$ENV_CONFIG_FILE" ]; then
+    echo -e "${RED}Error: Environment configuration file not found: $ENV_CONFIG_FILE${NC}"
+    echo "Please create the configuration file with environment-to-APIM version mappings"
+    exit 1
+fi
+source "$ENV_CONFIG_FILE"
+
 # Filter arrays for selective export
 declare -a API_FILTERS=()      # API name patterns (wildcards supported)
 declare -a SPECIFIC_APIS=()    # Specific API:Version combinations
@@ -38,14 +47,32 @@ log_message() {
       fi
   }
 
-# Function to check if apictl is installed
-check_apictl() {
-    if ! command -v apictl &> /dev/null; then
-        log_message "${RED}Error: apictl is not installed or not in PATH${NC}"
-        log_message "Please install apictl and ensure it's in your PATH"
+# Function to get apictl command for an environment
+get_apictl_cmd() {
+    local env_name="$1"
+    local var_name="env_${env_name}"
+    local apictl_cmd="${!var_name}"
+
+    if [ -z "$apictl_cmd" ]; then
+        log_message "${RED}Error: No APIM version mapping found for environment: $env_name${NC}"
+        log_message "${YELLOW}Please add mapping in conf/environments.conf${NC}"
+        log_message "${YELLOW}Example: env_${env_name}=\"apictl45\"${NC}"
         exit 1
     fi
-    log_message "${GREEN}✓ apictl found${NC}"
+
+    echo "$apictl_cmd"
+}
+
+# Function to check if apictl is installed
+check_apictl() {
+    local apictl_cmd=$(get_apictl_cmd "$ENVIRONMENT_NAME")
+
+    if ! command -v "$apictl_cmd" &> /dev/null; then
+        log_message "${RED}Error: $apictl_cmd is not installed or not in PATH${NC}"
+        log_message "Please install $apictl_cmd for APIM version mapped to environment: $ENVIRONMENT_NAME"
+        exit 1
+    fi
+    log_message "${GREEN}✓ $apictl_cmd found for environment $ENVIRONMENT_NAME${NC}"
 }
 
 # Function to create export directory
@@ -88,34 +115,39 @@ clean_logs() {
 
 # Function to check environment login status
 check_environment() {
-    log_message "${BLUE}Checking environment: $ENVIRONMENT_NAME${NC}"
-    
+    local apictl_cmd=$(get_apictl_cmd "$ENVIRONMENT_NAME")
+    log_message "${BLUE}Checking environment: $ENVIRONMENT_NAME (using $apictl_cmd)${NC}"
+
     # Try to list APIs to test connectivity
-    if apictl get apis --environment "$ENVIRONMENT_NAME" &> /dev/null; then
+    if $apictl_cmd get apis --environment "$ENVIRONMENT_NAME" &> /dev/null; then
         log_message "${GREEN}✓ Successfully connected to environment: $ENVIRONMENT_NAME${NC}"
         return 0
     else
         log_message "${RED}✗ Failed to connect to environment: $ENVIRONMENT_NAME${NC}"
         log_message "${YELLOW}Please ensure you are logged in to the environment${NC}"
-        log_message "Use: apictl login $ENVIRONMENT_NAME"
+        log_message "Use: $apictl_cmd login $ENVIRONMENT_NAME"
         return 1
     fi
 }
 
 # Function to get list of APIs
 get_api_list() {
+    local apictl_cmd=$(get_apictl_cmd "$ENVIRONMENT_NAME")
     log_message "${BLUE}Fetching API list...${NC}"
-    
-    # Get APIs in JSON format using apictl v4.5 syntax
-    local api_data=$(apictl get apis -e "$ENVIRONMENT_NAME" --format "{{ jsonPretty . }}" 2>/dev/null)
-    
+
+    # Get APIs in JSON format using apictl v4.5+ syntax
+    local api_data=$($apictl_cmd get apis -e "$ENVIRONMENT_NAME" --format "{{ jsonPretty . }}" 2>/dev/null)
+
     if [ $? -ne 0 ] || [ -z "$api_data" ]; then
         log_message "${RED}✗ Failed to fetch API list${NC}"
         return 1
     fi
-    
+
+    # Store raw JSON data for counting
+    API_JSON_DATA="$api_data"
+
     # Parse JSON to get API names, versions, providers, and status
-    # apictl v4.5 returns multiple JSON objects separated by newlines
+    # apictl v4.5+ returns multiple JSON objects separated by newlines
     echo "$api_data" | jq -r '"\(.Name):\(.Version):\(.Provider):\(.LifeCycleStatus)"' 2>/dev/null || {
         log_message "${RED}✗ Failed to parse API data - jq is required${NC}"
         return 1
@@ -186,14 +218,15 @@ export_api() {
     local api_name="$1"
     local api_version="$2"
     local api_provider="$3"
-    
+    local apictl_cmd=$(get_apictl_cmd "$ENVIRONMENT_NAME")
+
     log_message "${BLUE}Exporting API: $api_name (v$api_version) by $api_provider${NC}"
-    
+
     # Set the export directory using apictl
-    apictl set --export-directory "$EXPORT_DIR" &>/dev/null
-    
-    # Export the API using apictl v4.5 syntax
-    if apictl export api --name "$api_name" --version "$api_version" --provider "$api_provider" --environment "$ENVIRONMENT_NAME" --format JSON --insecure 2>> "$LOG_FILE"; then
+    $apictl_cmd set --export-directory "$EXPORT_DIR" &>/dev/null
+
+    # Export the API using apictl v4.5+ syntax
+    if $apictl_cmd export api --name "$api_name" --version "$api_version" --provider "$api_provider" --environment "$ENVIRONMENT_NAME" --format JSON --insecure 2>> "$LOG_FILE"; then
         log_message "${GREEN}✓ Successfully exported: $api_name (v$api_version)${NC}"
         return 0
     else
@@ -202,8 +235,8 @@ export_api() {
     fi
 }
 
-# Main function
-main() {
+# Function to display startup header
+display_startup_header() {
     if [ "$DRY_RUN" = true ]; then
         log_message "${BLUE}=== WSO2 API Manager - DRY RUN MODE ===${NC}"
         log_message "${YELLOW}⚠ Dry-run mode: No APIs will be exported${NC}"
@@ -216,8 +249,10 @@ main() {
         log_message "Export Directory: $EXPORT_DIR"
     fi
     log_message ""
+}
 
-    # Pre-flight checks
+# Function to run pre-flight checks
+run_preflight_checks() {
     check_apictl
     if [ "$DRY_RUN" = false ]; then
         setup_export_dir
@@ -226,8 +261,10 @@ main() {
     if ! check_environment; then
         exit 1
     fi
+}
 
-    # Display active filters if any
+# Function to display active filters
+display_active_filters() {
     if [ ${#API_FILTERS[@]} -gt 0 ] || [ ${#SPECIFIC_APIS[@]} -gt 0 ] || [ -n "$PROVIDER_FILTER" ] || [ -n "$STATUS_FILTER" ]; then
         log_message "${YELLOW}Active filters:${NC}"
         [ ${#API_FILTERS[@]} -gt 0 ] && log_message "  Name patterns: ${API_FILTERS[*]}"
@@ -236,8 +273,10 @@ main() {
         [ -n "$STATUS_FILTER" ] && log_message "  Status: $STATUS_FILTER"
         log_message ""
     fi
+}
 
-    # Get API list
+# Function to get and count APIs
+get_and_count_apis() {
     log_message "${BLUE}Getting list of APIs...${NC}"
     api_list=$(get_api_list)
 
@@ -246,43 +285,49 @@ main() {
         exit 1
     fi
 
-    # Count total APIs
-    total_api_count=$(echo "$api_list" | wc -l)
-    log_message "${GREEN}Found $total_api_count total APIs${NC}"
-
-    # Dry-run mode: List matching APIs without exporting
-    if [ "$DRY_RUN" = true ]; then
-        log_message ""
-        log_message "${BLUE}APIs that would be exported:${NC}"
-        match_count=0
-        skipped_count=0
-
-        while IFS=':' read -r api_name api_version api_provider api_status; do
-            if [ -n "$api_name" ] && [ -n "$api_version" ] && [ -n "$api_provider" ]; then
-                if matches_filters "$api_name" "$api_version" "$api_provider" "$api_status"; then
-                    ((match_count++))
-                    log_message "  ${GREEN}✓${NC} $api_name (v$api_version) by $api_provider [$api_status]"
-                else
-                    ((skipped_count++))
-                fi
-            fi
-        done <<< "$api_list"
-
-        log_message ""
-        log_message "${BLUE}=== Dry-Run Summary ===${NC}"
-        log_message "${GREEN}Would export: $match_count APIs${NC}"
-        if [ $skipped_count -gt 0 ]; then
-            log_message "${YELLOW}Would skip (filtered): $skipped_count APIs${NC}"
-        fi
-        log_message ""
-        log_message "${YELLOW}To perform the actual export, run without --dry-run${NC}"
-        exit 0
+    # Count total APIs by counting JSON object starts (each object begins with '{')
+    if [ -n "$API_JSON_DATA" ]; then
+        total_api_count=$(echo "$API_JSON_DATA" | grep -c '^{')
+    else
+        total_api_count=$(echo "$api_list" | grep -c '^[^:]*:[^:]*:[^:]*:[^:]*$')
     fi
+    log_message "${GREEN}Found $total_api_count total APIs${NC}"
+}
 
-    # Export each API (with filtering)
-    success_count=0
-    failure_count=0
-    skipped_count=0
+# Function to handle dry-run mode
+handle_dry_run() {
+    log_message ""
+    log_message "${BLUE}APIs that would be exported:${NC}"
+    local match_count=0
+    local skipped_count=0
+
+    while IFS=':' read -r api_name api_version api_provider api_status; do
+        if [ -n "$api_name" ] && [ -n "$api_version" ] && [ -n "$api_provider" ]; then
+            if matches_filters "$api_name" "$api_version" "$api_provider" "$api_status"; then
+                ((match_count++))
+                log_message "  ${GREEN}✓${NC} $api_name (v$api_version) by $api_provider [$api_status]"
+            else
+                ((skipped_count++))
+            fi
+        fi
+    done <<< "$api_list"
+
+    log_message ""
+    log_message "${BLUE}=== Dry-Run Summary ===${NC}"
+    log_message "${GREEN}Would export: $match_count APIs${NC}"
+    if [ $skipped_count -gt 0 ]; then
+        log_message "${YELLOW}Would skip (filtered): $skipped_count APIs${NC}"
+    fi
+    log_message ""
+    log_message "${YELLOW}To perform the actual export, run without --dry-run${NC}"
+    exit 0
+}
+
+# Function to export APIs with filtering
+export_apis() {
+    local success_count=0
+    local failure_count=0
+    local skipped_count=0
 
     while IFS=':' read -r api_name api_version api_provider api_status; do
         if [ -n "$api_name" ] && [ -n "$api_version" ] && [ -n "$api_provider" ]; then
@@ -298,31 +343,55 @@ main() {
             fi
         fi
     done <<< "$api_list"
-    
-    # Summary
+
+    # Store counts in global variables for summary
+    EXPORT_SUCCESS_COUNT=$success_count
+    EXPORT_FAILURE_COUNT=$failure_count
+    EXPORT_SKIPPED_COUNT=$skipped_count
+}
+
+# Function to display final summary
+display_summary() {
     log_message ""
     log_message "${BLUE}=== Export Summary ===${NC}"
-    log_message "${GREEN}Successfully exported: $success_count APIs${NC}"
-    if [ $failure_count -gt 0 ]; then
-        log_message "${RED}Failed exports: $failure_count APIs${NC}"
+    log_message "${GREEN}Successfully exported: $EXPORT_SUCCESS_COUNT APIs${NC}"
+    if [ $EXPORT_FAILURE_COUNT -gt 0 ]; then
+        log_message "${RED}Failed exports: $EXPORT_FAILURE_COUNT APIs${NC}"
     fi
-    if [ $skipped_count -gt 0 ]; then
-        log_message "${YELLOW}Skipped (filtered): $skipped_count APIs${NC}"
+    if [ $EXPORT_SKIPPED_COUNT -gt 0 ]; then
+        log_message "${YELLOW}Skipped (filtered): $EXPORT_SKIPPED_COUNT APIs${NC}"
     fi
     log_message "Export location: $EXPORT_DIR"
     log_message "Log file: $LOG_FILE"
     log_message "Completed at: $(date)"
 
-    if [ $success_count -eq 0 ]; then
+    if [ $EXPORT_SUCCESS_COUNT -eq 0 ]; then
         log_message "${YELLOW}⚠ No APIs were exported. Check your filters.${NC}"
         exit 1
-    elif [ $failure_count -eq 0 ]; then
+    elif [ $EXPORT_FAILURE_COUNT -eq 0 ]; then
         log_message "${GREEN}🎉 All matching APIs exported successfully!${NC}"
         exit 0
     else
         log_message "${YELLOW}⚠ Some APIs failed to export. Check the log for details.${NC}"
         exit 1
     fi
+}
+
+# Main function
+main() {
+    display_startup_header
+    run_preflight_checks
+    display_active_filters
+    get_and_count_apis
+
+    # Handle dry-run mode
+    if [ "$DRY_RUN" = true ]; then
+        handle_dry_run
+    fi
+
+    # Export APIs and display summary
+    export_apis
+    display_summary
 }
 
 # Help function
@@ -352,9 +421,20 @@ show_help() {
     echo "  - Filters can be combined for precise control"
     echo ""
     echo "Prerequisites:"
-    echo "  - apictl must be installed and in PATH"
+    echo "  - Version-specific apictl must be installed and in PATH"
+    echo "  - apictl45 for APIM 4.5 environments, apictl46 for APIM 4.6 environments"
+    echo "  - Environment-to-version mapping configured in conf/environments.conf"
     echo "  - Must be logged in to the target environment"
     echo "  - jq is required for JSON parsing"
+    echo ""
+    echo "APIM Version Mapping:"
+    echo "  This script uses the environment mappings defined in: conf/environments.conf"
+    echo "  Current mappings:"
+    for env in $ALL_ENVIRONMENTS; do
+        local var_name="env_${env}"
+        echo "    - $env: ${!var_name}"
+    done
+    echo "  To modify mappings, edit: $PROJECT_ROOT/conf/environments.conf"
     echo ""
     echo "Examples:"
     echo "  # Export all APIs (default behavior)"

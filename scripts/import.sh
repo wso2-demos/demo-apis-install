@@ -15,6 +15,15 @@ IMPORT_DIR=""  # Will be set after parsing arguments
 IMPORT_DIR_EXPLICIT=false  # Track if -d was explicitly set
 API_FILTER=""  # Optional: specific API to import (Name_Version format)
 
+# Source the environment-to-version mapping configuration
+ENV_CONFIG_FILE="$PROJECT_ROOT/conf/environments.conf"
+if [ ! -f "$ENV_CONFIG_FILE" ]; then
+    echo -e "${RED}Error: Environment configuration file not found: $ENV_CONFIG_FILE${NC}"
+    echo "Please create the configuration file with environment-to-APIM version mappings"
+    exit 1
+fi
+source "$ENV_CONFIG_FILE"
+
 # Ensure logs directory exists in project root before creating log file
 mkdir -p "$PROJECT_ROOT/logs"
 LOG_FILE="$PROJECT_ROOT/logs/import_log_$(date +%Y%m%d_%H%M%S).log"
@@ -34,14 +43,32 @@ log_message() {
       echo -e "$1" | sed 's/\x1b\[[0-9;]*m//g' >> "$LOG_FILE"  # Strip colors for file
   }
 
-# Function to check if apictl is installed
-check_apictl() {
-    if ! command -v apictl &> /dev/null; then
-        log_message "${RED}Error: apictl is not installed or not in PATH${NC}"
-        log_message "Please install apictl and ensure it's in your PATH"
+# Function to get apictl command for an environment
+get_apictl_cmd() {
+    local env_name="$1"
+    local var_name="env_${env_name}"
+    local apictl_cmd="${!var_name}"
+
+    if [ -z "$apictl_cmd" ]; then
+        log_message "${RED}Error: No APIM version mapping found for environment: $env_name${NC}"
+        log_message "${YELLOW}Please add mapping in conf/environments.conf${NC}"
+        log_message "${YELLOW}Example: env_${env_name}=\"apictl45\"${NC}"
         exit 1
     fi
-    log_message "${GREEN}✓ apictl found${NC}"
+
+    echo "$apictl_cmd"
+}
+
+# Function to check if apictl is installed
+check_apictl() {
+    local target_apictl_cmd=$(get_apictl_cmd "$ENVIRONMENT_NAME")
+
+    if ! command -v "$target_apictl_cmd" &> /dev/null; then
+        log_message "${RED}Error: $target_apictl_cmd is not installed or not in PATH${NC}"
+        log_message "Please install $target_apictl_cmd for APIM version mapped to environment: $ENVIRONMENT_NAME"
+        exit 1
+    fi
+    log_message "${GREEN}✓ $target_apictl_cmd found for target environment $ENVIRONMENT_NAME${NC}"
 }
 
 # Function to clean logs directory
@@ -74,16 +101,17 @@ clean_logs() {
 
 # Function to check environment login status
 check_environment() {
-    log_message "${BLUE}Checking environment: $ENVIRONMENT_NAME${NC}"
-    
+    local target_apictl_cmd=$(get_apictl_cmd "$ENVIRONMENT_NAME")
+    log_message "${BLUE}Checking target environment: $ENVIRONMENT_NAME (using $target_apictl_cmd)${NC}"
+
     # Try to list APIs to test connectivity
-    if apictl get apis -e "$ENVIRONMENT_NAME" &> /dev/null; then
+    if $target_apictl_cmd get apis -e "$ENVIRONMENT_NAME" &> /dev/null; then
         log_message "${GREEN}✓ Successfully connected to environment: $ENVIRONMENT_NAME${NC}"
         return 0
     else
         log_message "${RED}✗ Failed to connect to environment: $ENVIRONMENT_NAME${NC}"
         log_message "${YELLOW}Please ensure you are logged in to the environment${NC}"
-        log_message "Use: apictl login $ENVIRONMENT_NAME"
+        log_message "Use: $target_apictl_cmd login $ENVIRONMENT_NAME"
         return 1
     fi
 }
@@ -127,6 +155,7 @@ get_api_files() {
 import_api() {
     local api_file="$1"
     local api_name=$(basename "$api_file" .zip)
+    local target_apictl_cmd=$(get_apictl_cmd "$ENVIRONMENT_NAME")
 
     log_message "${BLUE}Importing API: $api_name${NC}"
     log_message "  Source: $api_file"
@@ -140,8 +169,8 @@ import_api() {
         log_message "  ${YELLOW}Using params: $params_file${NC}"
     fi
 
-    # Import the API using apictl v4.5 syntax
-    if apictl import api --file "$api_file" --environment "$ENVIRONMENT_NAME" --update --insecure $params_flag 2>> "$LOG_FILE"; then
+    # Import the API using apictl v4.5+ syntax with version-specific command
+    if $target_apictl_cmd import api --file "$api_file" --environment "$ENVIRONMENT_NAME" --update --insecure $params_flag 2>> "$LOG_FILE"; then
         log_message "${GREEN}✓ Successfully imported: $api_name${NC}"
         return 0
     else
@@ -247,9 +276,20 @@ show_help() {
     echo "  -h, --help               Show this help message"
     echo ""
     echo "Prerequisites:"
-    echo "  - apictl must be installed and in PATH"
+    echo "  - Version-specific apictl must be installed and in PATH"
+    echo "  - apictl45 for APIM 4.5 environments, apictl46 for APIM 4.6 environments"
+    echo "  - Environment-to-version mapping configured in conf/environments.conf"
     echo "  - Must be logged in to the target environment"
     echo "  - API ZIP files must exist in the import directory"
+    echo ""
+    echo "APIM Version Mapping:"
+    echo "  This script uses the environment mappings defined in: conf/environments.conf"
+    echo "  Current mappings:"
+    for env in $ALL_ENVIRONMENTS; do
+        local var_name="env_${env}"
+        echo "    - $env: ${!var_name}"
+    done
+    echo "  To modify mappings, edit: $PROJECT_ROOT/conf/environments.conf"
     echo ""
     echo "Configuration Overrides:"
     echo "  Optional params files can be placed in: conf/<APIName_Version>/params.yaml"
