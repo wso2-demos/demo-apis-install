@@ -10,9 +10,10 @@ This is a WSO2 API Manager backup utility that provides automated API export fun
 
 - **scripts/backup.sh**: Main bash script for bulk API export from WSO2 API Manager
 - **scripts/import.sh**: Script for importing exported APIs to target environment (e.g., QA)
+- **conf/environments.conf**: Configuration file mapping environment names to APIM versions (apictl45/apictl46)
 - **api-exports/**: Directory containing exported API definitions (created during execution)
 - **logs/**: Directory containing timestamped log files for export and import operations
-- **conf/**: Configuration directory (currently empty, available for future use)
+- **conf/**: Configuration directory containing environment mappings and optional API-specific params
 
 ## Common Commands
 
@@ -86,16 +87,28 @@ This is a WSO2 API Manager backup utility that provides automated API export fun
 Before running the script, ensure:
 
 ```bash
-# Check if apictl is installed (requires v4.5+)
-apictl version
+# Check if version-specific apictl is installed (requires v4.5+)
+apictl45 version  # For APIM 4.5 environments
+apictl46 version  # For APIM 4.6 environments
 
-# Login to WSO2 API Manager environments
-apictl login dev   # source environment for export
-apictl login qa    # target environment for import
+# Login to WSO2 API Manager environments using the correct version
+apictl45 login dev   # dev uses APIM 4.5 (as configured in conf/environments.conf)
+apictl46 login qa    # qa uses APIM 4.6 (as configured in conf/environments.conf)
 
 # Install jq for JSON parsing (required)
 brew install jq  # macOS
 ```
+
+### Environment Configuration
+
+The scripts automatically use the correct `apictl` version based on environment mappings defined in [conf/environments.conf](conf/environments.conf):
+
+- **dev** → apictl45 (APIM 4.5)
+- **next** → apictl45 (APIM 4.5)
+- **qa** → apictl46 (APIM 4.6)
+- **production** → apictl46 (APIM 4.6)
+
+To add or modify environment mappings, edit [conf/environments.conf](conf/environments.conf).
 
 ## Architecture
 
@@ -173,6 +186,15 @@ Both scripts include robust error handling:
 
 ## Development Notes
 
+### APIM Version Support
+
+Both scripts support multiple APIM versions (4.5 and 4.6) through environment-specific `apictl` commands:
+
+- **Version Mapping**: [conf/environments.conf](conf/environments.conf) maps each environment to its `apictl` version
+- **Automatic Selection**: Scripts automatically use the correct `apictl` command (apictl45 or apictl46)
+- **get_apictl_cmd()**: Helper function ([scripts/backup.sh:50-62](scripts/backup.sh#L50-L62)) retrieves the appropriate command
+- **Cross-version Support**: Export from APIM 4.5 (dev) and import to APIM 4.6 (qa) seamlessly
+
 ### Export Script ([scripts/backup.sh](scripts/backup.sh))
 - Updated for WSO2 `apictl` v4.5+ compatibility
 - Uses new command syntax: `apictl get apis --format "{{ jsonPretty . }}"`
@@ -183,6 +205,7 @@ Both scripts include robust error handling:
 - Logs are automatically created in `$PROJECT_ROOT/logs/` directory with timestamped filenames
 - Export directory defaults to `$PROJECT_ROOT/api-exports/`
 - Script uses `BASH_SOURCE` to determine its location and always uses project root for logs and exports, regardless of where it's executed from
+- Version-specific commands used throughout: `$apictl_cmd get apis`, `$apictl_cmd export api`
 
 **Selective Export Features:**
 - `matches_filters()` function ([scripts/backup.sh:92-149](scripts/backup.sh#L92-L149)) implements filter logic
@@ -222,6 +245,8 @@ Both scripts include robust error handling:
 - Automatically discovers ZIP files in import directory structure using `find`
 - Supports importing from any directory structure containing API ZIP files
 - Logs are automatically created in `./logs/` directory with timestamped filenames
+- Version-specific command used: `$target_apictl_cmd import api` based on target environment
+- Supports cross-version imports (e.g., export from 4.5, import to 4.6)
 
 ### Key Changes from Legacy Versions
 
