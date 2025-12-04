@@ -34,14 +34,22 @@ apictl login qa
 ### Import APIs
 
 ```bash
-# Import all APIs to default environment (qa)
+# Import all APIs from default source (dev) to default target (qa)
 ./scripts/import.sh
 
-# Import to specific environment
-./scripts/import.sh -e production
+# Import from specific source environment to target
+./scripts/import.sh -s next -e qa
+./scripts/import.sh -s dev -e production
+
+# Import from custom directory
+./scripts/import.sh -d /path/to/exports -e production
 
 # Import specific API only
 ./scripts/import.sh -a PizzaShackAPI_1.0.0 -e qa
+./scripts/import.sh -a OpenAIAPI_2.3.0 -s dev -e production
+
+# Clean all log files (interactive confirmation)
+./scripts/import.sh --clean-logs
 ```
 
 ### Configuration & API Keys
@@ -63,10 +71,12 @@ For environment-specific configurations, API keys, and security best practices:
 
 ### Import Script (`import.sh`)
 - Import all exported API ZIP files or a single specific API
+- Specify source environment for automatic path resolution
+- Import from custom directories
 - Update existing APIs automatically
 - Support for environment-specific configuration via params files
 - Batch processing with success/failure tracking
-- Detailed import logs
+- Detailed import logs with cleanup option
 
 ## Help
 
